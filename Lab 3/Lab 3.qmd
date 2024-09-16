@@ -2,11 +2,22 @@
 title: "Lab 3"
 author: "Hanin Almodaweb"
 format: html
-embed-resources: true
+theme: journal
+embded-resources: true
+fig-width: 6
+fig-height: 4
 ---
 
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+#install.packages(c("data.table","leaflet"))
+library(data.table)
+library(leaflet)
+library(tidyverse)
+library(R.utils)
+library(dplyr)
+library(ggplot2)
+```
 # 1. Read in the data
-
 ```{r}
 met <- data.table::fread(file.path("~", "Downloads", "met_all.gz"))
 met <- as.data.frame(met)
@@ -101,29 +112,26 @@ cor(elev$temp, elev$day, use="complete")
 
 ### **Use the `hist` function to make histograms of the elevation, temperature, and wind speed variables for the whole dataset**
 ```{r}
-hist(met$elev,)
-hist(met$temp,)
-hist(met$wind.sp,)
+hist(met$elev, main= "Histogram of Elevation")
+hist(met$temp,main= "Histogram of temperature")
+hist(met$wind.sp,main= "Histogram of wind speed")
 ```
 
 One thing we should consider for later analyses is to log transform wind speed and elevation as they are very skewed.
 
-Look at where the weather station with highest elevation is located.
-
 ```{r}
+library(leaflet)
 leaflet(elev) %>%
   addProviderTiles('OpenStreetMap') %>% 
   addCircles(lat=~lat,lng=~lon, opacity=1, fillOpacity=1, radius=100)
-```
 
-Look at the time series of temperature and wind speed at this location. For this we will need to create a date-time variable for the x-axis.
-
-```{r}
 library(lubridate)
 elev$date <- with(elev, ymd_h(paste(year, month, day, hour, sep= ' ')))
 summary(elev$date)
 elev <- elev[order(elev$date), ]
 head(elev)
+plot(elev$date,elev$temp, type = "l")
+plot(elev$date,elev$wind.sp, type = "l")
 ```
 
 With the date-time variable we can plot the time series of temperature and wind speed.
@@ -156,7 +164,4 @@ The wind speed plot shows regular fluctuations throughout August, with peaks exc
 # 8. Ask questions
 
 ### **What questions do you have about the data?**
-
-
-### For questions about variables in the dataset or relationships between them, try making some more exploratory plots. Do you see the patterns you would expect? 
-
+How was the quality control (QC) information established and used? Should these be incorporated into the analysis to filter out unreliable data?
