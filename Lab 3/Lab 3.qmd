@@ -3,7 +3,7 @@ title: "Lab 3"
 author: "Hanin Almodaweb"
 format: html
 theme: journal
-embded-resources: true
+embed-resources: true
 fig-width: 6
 fig-height: 4
 ---
