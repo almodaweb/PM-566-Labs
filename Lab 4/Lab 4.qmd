@@ -202,7 +202,9 @@ The trend in relative humidity increases from west to east, with the exception o
 
 ```{r}
 # ggforce plot
-install.packages("ggforce")
+options(repos = c(CRAN = "https://cloud.r-project.org/"))  
+install.packages("ggforce") 
+
 library(ggforce)
 
 met_avg %>%
