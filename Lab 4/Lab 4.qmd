@@ -201,22 +201,17 @@ The trend in relative humidity increases from west to east, with the exception o
 -   Might want to try examples that come with the extension first (e.g. ggtech, gganimate, ggforce)
 
 ```{r}
-# beeswarm plot
-install.packages("ggbeeswarm", repos = "https://cloud.r-project.org/")
-library(ggbeeswarm)
+# ggforce plot
+install.packages("ggforce")
+library(ggforce)
 
-met_avg_filtered <- met_avg %>%
-  group_by(temp, region) %>%
-  filter(n() > 1) %>%
-  ungroup()
-
-ggplot(data = met_avg_filtered, aes(x = factor(temp), y = wind.sp, color = region)) +
-  geom_beeswarm(cex = 2, priority = "density", size = 3) +  # Beeswarm points
-  labs(title = "Wind Speed Distribution by Temperature and Region",
-       x = "Temperature (°C)",
-       y = "Wind Speed (m/s)") +
-  theme_minimal() +
-  scale_color_brewer(palette = "Set1") +  # Change color palette
-  theme(legend.position = "bottom")
+met_avg %>%
+  filter(!(region %in% NA)) %>%
+  ggplot() +
+  geom_point(mapping = aes(x = temp, y = rh, color = region)) +
+  facet_zoom(x = region == "south east") +
+  ggtitle("Temperature vs Relative Humidity by Region") +  
+  xlab("Temperature (°C)") +  
+  ylab("Relative Humidity (%)") 
 ```
 
