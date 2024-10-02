@@ -1,0 +1,275 @@
+---
+title: "Lab 5"
+author: "Hanin Almodaweb"
+format: html
+theme: journal
+embed-resources: true
+fig-width: 10
+fig-height: 6
+---
+
+## Setup in R
+
+1. Load the `data.table` (and the `dtplyr` and `dplyr` packages if you plan to work with those).
+
+```{r packages}
+# load packages 
+library(data.table)
+library(leaflet)
+library(tidyverse)
+library(dplyr)
+library(dtplyr)
+library(ggplot2)
+```
+
+2. Load the met data from https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz, and also the station data. For the later, you can use the code we used during lecture to pre-process the stations data:
+
+```{r met data}
+# load the met data
+met <- data.table::fread(file.path("~", "Downloads", "met_all.gz"))
+```
+
+```{r stations data}
+# download the stations data
+stations <- fread("https://noaa-isd-pds.s3.amazonaws.com/isd-history.csv")
+stations[, USAF := as.integer(USAF)]
+
+# dealing with NAs and 999999
+stations[, USAF   := fifelse(USAF == 999999, NA_integer_, USAF)]
+stations[, CTRY   := fifelse(CTRY == "", NA_character_, CTRY)]
+stations[, STATE  := fifelse(STATE == "", NA_character_, STATE)]
+
+# selecting the three relevant columns, and keeping unique records
+stations <- unique(stations[, list(USAF, CTRY, STATE)])
+
+# dropping NAs
+stations <- stations[!is.na(USAF)]
+
+# removing duplicates
+stations[, n := 1:.N, by = .(USAF)]
+stations <- stations[n == 1,][, n := NULL]
+```
+
+3. Merge the data as we did during the lecture.
+
+```{r}
+# merging the met and stations data 
+combined_data <- merge(
+  # data
+  x     = met,      
+  y     = stations, 
+  # list of variables to match
+  by.x  = "USAFID",
+  by.y  = "USAF", 
+  # which obs to keep?
+  all.x = TRUE,      
+  all.y = FALSE
+  )
+```
+
+## Question 1: Representative station for the US
+
+What is the median station in terms of temperature, wind speed, and atmospheric pressure? Look for the three weather stations that best represent continental US using the `quantile()` function. Do these three coincide?
+
+```{r}
+# calculating medians by station for temp, wind speed, and atm pressure
+medians_USAFID <- aggregate(
+  cbind(temp, wind.sp, atm.press) ~ USAFID + STATE, 
+  data = combined_data, 
+  FUN = median, 
+  na.rm = TRUE
+)
+
+# calculating the national medians for temperature, wind speed, and atm pressure
+median_temp <- quantile(combined_data$temp, 0.5, na.rm = TRUE)
+median_wind <- quantile(combined_data$wind.sp, 0.5, na.rm = TRUE)
+median_press <- quantile(combined_data$atm.press, 0.5, na.rm = TRUE)
+
+# Finding the stations closest to the median for each variable
+closest_temp <- medians_USAFID[which.min(abs(medians_USAFID$temp - median_temp)), ]
+closest_wind <- medians_USAFID[which.min(abs(medians_USAFID$wind.sp - median_wind)), ]
+closest_press <- medians_USAFID[which.min(abs(medians_USAFID$atm.press - median_press)), ]
+
+# printing the closest stations
+closest_temp
+closest_wind
+closest_press
+
+# checking if the three stations coincide (i.e., are the same)
+stations_coincide <- identical(closest_temp$USAFID, closest_wind$USAFID) && 
+                     identical(closest_wind$USAFID, closest_press$USAFID)
+
+# output whether the stations coincide
+stations_coincide
+```
+
+The analysis of the median weather stations for temperature, wind speed, and atmospheric pressure reveals that the stations do not coincide. The median values for the data are 23.5°C for temperature, 2.1 m/s for wind speed, and 1014 hPa for atmospheric pressure. The closest station to the median temperature is USAFID 722860 located in California, with a temperature of 23.55°C. For wind speed, USAFID 722235 in Alabama best matches the median, with an exact wind speed of 2.1 m/s. Lastly, USAFID 723830, also in California, aligns with the median atmospheric pressure of 1014 hPa. Therefore, the weather stations representing the median values for temperature, wind speed, and atmospheric pressure are from different locations, and they do not coincide.
+
+## Question 2: Representative station per state
+
+Just like the previous question, you are asked to identify what is the most representative, the median, station per state. This time, instead of looking at one variable at a time, look at the euclidean distance. If multiple stations show in the median, select the one located at the lowest latitude.
+
+```{r}
+# find the medians of each state for temp, wind speed, and pressure
+medians_by_state <- combined_data |>
+  group_by(STATE) |>
+  summarize(
+    median_temp = median(temp, na.rm = TRUE),
+    median_wind = median(wind.sp, na.rm = TRUE),
+    median_press = median(atm.press, na.rm = TRUE)
+  )
+
+# find the most representative stations using Euclidean distance per state
+closest_usafid_by_state <- combined_data |>
+  group_by(STATE, USAFID) |>
+  summarize(
+    temp = median(temp, na.rm = TRUE),
+    wind.sp = median(wind.sp, na.rm = TRUE),
+    atm.press = median(atm.press, na.rm = TRUE),
+    lat = median(lat, na.rm = TRUE)  # Include latitude for tie-breaking
+  ) |>
+  left_join(medians_by_state, by = "STATE") |>
+  mutate(
+    
+    # Calculate the Euclidean distance for each station to the state's median
+    euclidean_dist = sqrt(
+      (temp - median_temp)^2 +
+      (wind.sp - median_wind)^2 +
+      (atm.press - median_press)^2
+    )
+  ) |>
+  group_by(STATE) |>
+  
+  # In case of ties (stations with the same distance), pick the one with the lowest latitude
+  slice_min(order_by = euclidean_dist, with_ties = TRUE) |>
+  slice_min(order_by = lat) |>
+  select(STATE, USAFID, euclidean_dist, lat)
+
+# print the result
+closest_usafid_by_state
+```
+
+## Question 3: In the middle?
+
+For each state, identify what is the station that is closest to the mid-point of the state. Combining these with the stations you identified in the previous question, use `leaflet()` to visualize all ~100 points in the same figure, applying different colors for those identified in this question.
+
+```{r}
+# calculating the midpoints for each state
+state_midpoints <- combined_data |>
+  group_by(STATE) |>
+  summarize(
+    mid_lat = mean(lat, na.rm = TRUE),  # Replace with your latitude column name
+    mid_lon = mean(lon, na.rm = TRUE),  # Replace with your longitude column name
+    .groups = 'drop'
+  )
+
+# finding the closest station to each state midpoint
+closest_to_midpoint <- state_midpoints |>
+  rowwise() |>
+  mutate(
+    USAFID = combined_data$USAFID[which.min(sqrt((combined_data$lat - mid_lat)^2 + (combined_data$lon - mid_lon)^2))]
+  ) |>
+  ungroup()
+
+# combining the closest stations for graphing
+combined_stations <- closest_to_midpoint |>
+  left_join(combined_data |> select(USAFID, lat, lon), by = "USAFID")
+
+# graphing using leaflet
+library(leaflet)
+
+# leaflet map
+map <- leaflet() |>
+  addTiles()  # Add OpenStreetMap tiles
+
+# adding points for closest stations to midpoints
+map <- map |>
+  addCircleMarkers(data = combined_stations,
+                   lng = ~lon, lat = ~lat,
+                   color = "turquoise",  # Color for closest stations to midpoints
+                   radius = 5,
+                   popup = ~paste("Station ID:", USAFID),
+                   group = "Closest Stations")
+
+# adding points for actual state midpoints
+map <- map |>
+  addCircleMarkers(data = state_midpoints,
+                   lng = ~mid_lon, lat = ~mid_lat,
+                   color = "pink",  # Color for actual state midpoints
+                   radius = 7,
+                   label = ~paste("State Midpoint:", STATE),
+                   group = "State Midpoints")
+
+# adding layer control to toggle visibility
+map <- map |>
+  addLayersControl(
+    overlayGroups = c("Closest Stations", "State Midpoints"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+# showing the map
+map
+```
+
+## Question 4: Means of means
+
+Using the `quantile()` function, generate a summary table that shows the number of states included, average temperature, wind-speed, and atmospheric pressure by the variable "average temperature level," which you'll need to create. 
+
+Start by computing the states' average temperature. Use that measurement to classify them according to the following criteria: 
+
+- low: temp < 20
+- Mid: temp >= 20 and temp < 25
+- High: temp >= 25
+
+Once you are done with that, you can compute the following:
+
+- Number of entries (records),
+- Number of NA entries,
+- Number of stations,
+- Number of states included, and
+- Mean temperature, wind-speed, and atmospheric pressure.
+
+All by the levels described before.
+
+```{r}
+# calculating the average temperature for each state
+state_avg_temp <- combined_data |>
+  group_by(STATE) |>
+  summarize(
+    avg_temp = mean(temp, na.rm = TRUE),
+    avg_wind = mean(wind.sp, na.rm = TRUE),
+    avg_press = mean(atm.press, na.rm = TRUE),
+    num_entries = n(),
+    num_na = sum(is.na(temp)),  # Count NA entries for temperature
+    .groups = 'drop'
+  )
+
+# classifying the states into "low," "mid," and "high" temperature levels
+state_avg_temp <- state_avg_temp |>
+  mutate(
+    temp_level = case_when(
+      avg_temp < 20 ~ "Low",
+      avg_temp >= 20 & avg_temp < 25 ~ "Mid",
+      avg_temp >= 25 ~ "High"
+    )
+  )
+
+#generating a summary table 
+summary_table <- state_avg_temp |>
+  group_by(temp_level) |>
+  summarize(
+    num_states = n(),
+    num_stations = n_distinct(STATE),  # Number of unique states
+    total_entries = sum(num_entries),  # Total number of entries
+    total_na = sum(num_na),  # Total number of NA entries
+    avg_temp = mean(avg_temp, na.rm = TRUE),
+    avg_wind = mean(avg_wind, na.rm = TRUE),
+    avg_press = mean(avg_press, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# printing the summary table
+summary_table
+```
+
+
