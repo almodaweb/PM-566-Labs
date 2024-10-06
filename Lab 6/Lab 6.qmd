@@ -1,0 +1,230 @@
+---
+title: "Lab 6"
+author: "Hanin Almodaweb"
+format: html
+theme: journal
+embed-resources: true
+fig-width: 10
+fig-height: 6
+---
+
+### Setup packages
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+# install and load packages
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
+
+install.packages("tidytext")
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(tidyr)
+```
+
+### Read in Medical Transcriptions
+
+```{r, warning=FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+mt_samples <- read_csv("https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv")
+mt_samples <- mt_samples |>
+  select(description, medical_specialty, transcription)
+
+head(mt_samples, 5)
+```
+
+---
+
+## Question 1: What specialties do we have?
+
+We can use `count()` from `dplyr` to figure out how many different catagories do we have? Are these catagories related? overlapping? evenly distributed?
+
+```{r}
+mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+
+# visualizing the distribution of specialties
+specialty_count <- mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+
+specialty_count %>%
+  ggplot(aes(x = reorder(medical_specialty, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Specialty", y = "Count", title = "Distribution of Specialties")
+```
+
+The dataset comprises 40 distinct medical specialties. The distribution of occurrences among these specialties varies significantly and is not evenly distributed; "Surgery" leads the count at 1103 occurrences, while "Hospice" has the smallest count at 6 occurrences. Furthermore, there are potential overlaps and relatedness between certain specialties; for instance, Orthopedic and Radiology may both relate to the treatment and diagnosis of bone injuries.
+
+---
+
+## Question 2
+
+- Tokenize the the words in the `transcription` column
+- Count the number of times each token appears
+- Visualize the top 20 most frequent words
+
+Explain what we see from this result. Does it makes sense? What insights (if any) do we get?
+
+```{r}
+# tokenizing words from the transcription column
+mtsamples_tokens <- mt_samples %>%
+  unnest_tokens(word, transcription)
+
+# counting the number of times each token appears
+token_count <- mtsamples_tokens %>%
+  count(word, sort = TRUE)
+
+# visualizing the top 20 most frequent words
+token_count %>%
+  top_n(20) %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 20 Most Common Words")
+
+```
+
+The analysis of the top 20 most common words from the transcription data reveals a significant prevalence of stop words, with "the" being the top word, followed by "and" and "was," which limits the insights we can derive from this analysis. This outcome is expected, as these words serve as essential connectors and grammatical structure in English. The only potentially useful word in this context is "patient," indicating a focus on patient-related information within the transcriptions. While the dominance of these common words is typical, it underscores the necessity of filtering out stopwords in further analysis to extract more meaningful insights related to specific medical themes or conditions. 
+
+---
+
+## Question 3
+
+- Redo visualization but remove stopwords before
+- Bonus points if you remove numbers as well
+
+What do we see know that we have removed stop words? Does it give us a better idea of what the text is about?
+
+```{r}
+# install and load stringr package
+install.packages("stringr")
+library(stringr)
+
+# tokenize, remove stopwords and numbers, then count tokens again
+clean_token_count <- mt_samples %>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = "word") %>%
+  filter(!str_detect(word, "^[0-9]+$")) %>%
+  count(word, sort = TRUE)
+
+# visualizing the top 20 most frequent words
+clean_token_count %>%
+  top_n(20) %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Word", y = "Frequency", title = "Top 20 Most Common Words (No Stopwords, No Numbers)")
+```
+
+The revised visualization, which excludes stop words and numbers, presents a clearer picture of the terminology frequently used in the medical transcriptions. The most common word is "patient," appearing over 22,000 times. Other notable terms include "left," "history," "normal," and "procedure," suggesting key aspects of patient encounters, such as their medical history, the nature of the procedures performed, and any findings related to their condition. By filtering out common stop words and numeric values, the analysis reveals a more meaningful set of terms that are likely to reflect the context and content of medical records. 
+
+---
+
+# Question 4
+
+repeat question 2, but this time tokenize into bi-grams. how does the result change if you look at tri-grams?
+
+```{r}
+install.packages("forcats") 
+library(forcats)  
+
+# tokenize into bigrams
+mt_samples |>
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) |>
+  count(ngram, sort = TRUE) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(ngram, n))) + 
+  geom_col() +
+  labs(x = "Frequency", y = "N-gram", title = "Top 20 Bigrams")
+
+# tokenize into trigrams
+mt_samples |>
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 3) |>
+  count(ngram, sort = TRUE) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(ngram, n)))+
+  geom_col()
+  labs(x = "Frequency", y = "N-gram", title = "Top 20 Trigrams")
+```
+
+When analyzing bi-grams, "the patient" emerges as the top phrase, followed by "of the" and "in the." However, these findings are somewhat limited due to the presence of stop words, which diminish the meaningfulness of the insights. In contrast, the most common tri-gram is "the patient was," closely followed by "the patient is." Overall, although the prevalence of stop words reduces the depth of insight, the consistent emphasis on "patient" signals a relevant theme in the medical data.
+
+---
+
+# Question 5
+
+Using the results you got from questions 4. Pick a word and count the words that appears after and before it.
+
+```{r}
+# picking the word "surgery" and seeing what comes after it
+mt_samples |>
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) |>
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word1 == "surgery") |>
+  count(word2, sort = TRUE)
+
+# picking the word "surgery" and seeing what comes before it
+mt_samples |>
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) |>
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word2 == "surgery") |>
+  count(word1, sort = TRUE)
+
+```
+
+When looking at the words that follow "surgery," the most common occurrences include "the" (170 times), "and" (143 times), and "in" (93 times). Conversely, when considering the words that precede "surgery," "the" leads with 220 occurrences, followed closely by "for" (202), "of" (178), "bypass" (93), and "with" (74). 
+
+---
+
+# Question 6 
+
+Which words are most used in each of the specialties. you can use `group_by()` and `top_n()` from `dplyr` to have the calculations be done within each specialty. Remember to remove stopwords. How about the most 5 used words?
+
+```{r}
+mt_samples |>
+  unnest_tokens(words, transcription, token = "words") |>
+  anti_join(stop_words, by = c("words" = "word")) |>
+  group_by(medical_specialty) |>
+  count(words, sort = TRUE) |>
+  top_n(5, n)
+```
+
+The analysis reveals a consistent emphasis on the term "patient" across multiple specialties. 
+
+---
+
+# Question 7 - extra
+
+Find your own insight in the data:
+
+Ideas:
+- Interesting ngrams
+- See if certain words are used more in some specialties then others
+
+```{r}
+# count word usage across specialties
+word_specialty_counts <- mt_samples |>
+  unnest_tokens(word, transcription) |>
+  anti_join(stop_words, by = "word") |>
+  count(medical_specialty, word, sort = TRUE) |>
+  ungroup()
+
+# visualize the top words used in each specialty
+word_specialty_counts |> 
+  group_by(medical_specialty) |> 
+  top_n(5, n) |> 
+  ggplot(aes(fct_reorder(word, n), n, fill = medical_specialty)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ medical_specialty, scales = "free_y") +
+  labs(title = "Top 5 Words Used by Medical Specialty",
+       x = "Words",
+       y = "Frequency") +
+  coord_flip()
+
+```
+
+
